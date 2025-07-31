@@ -1,42 +1,32 @@
 from flask import Flask, request, jsonify
-import pandas as pd
-from datetime import datetime
+import csv
 import os
 
 app = Flask(__name__)
 
-# File to store incoming sensor data
-DATA_FILE = 'sensor_data.csv'
+CSV_FILE = 'sensor_data.csv'
 
-# Create CSV if it doesn't exist
-if not os.path.exists(DATA_FILE):
-    df = pd.DataFrame(columns=["timestamp", "sensor_type", "value"])
-    df.to_csv(DATA_FILE, index=False)
+# Ensure the CSV file has a header
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['sensor_id', 'value', 'timestamp'])
 
-@app.route('/')
-def home():
-    return "✅ Flask IoT Server Running!"
+@app.route('/data', methods=['POST'])
+def receive_data():
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'No JSON data received'}), 400
 
-# Endpoint to receive data from ESP32
-@app.route('/upload-data', methods=['POST'])
-def upload_data():
-    try:
-        data = request.get_json()
+    print("Received:", data)
 
-        # Extract values
-        sensor_type = data['sensor_type']
-        value = float(data['value'])
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Save to CSV
+    with open(CSV_FILE, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([data.get('sensor_id'), data.get('value'), data.get('timestamp')])
 
-        # Append to CSV
-        df = pd.read_csv(DATA_FILE)
-        new_row = pd.DataFrame([[timestamp, sensor_type, value]], columns=["timestamp", "sensor_type", "value"])
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(DATA_FILE, index=False)
-
-        return jsonify({"status": "success", "message": "Data saved"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+    return jsonify({'message': 'Data saved successfully'}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
