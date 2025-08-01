@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Sensor Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Live Sensor Dashboard</h1>
+
+        <div class="center">
+            <a class="download-btn" href="/download">⬇️ Download CSV</a>
+        </div>
+
+        <label for="sensorFilter">Select Sensor Type:</label>
+        <select id="sensorFilter">
+            <option value="all">MQ-5</option>
+            <option value="all">1</option>
+            <option value="all">2</option>
+            <option value="all">3</option>
+        </select>
+
+        <canvas id="sensorChart" width="800" height="400"></canvas>
+
+        <table id="data-table">
+            <thead>
+                <tr>
+                    <th>Sensor ID</th>
+                    <th>Value</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Data will be populated here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+    async function fetchData() {
+        const response = await fetch('/data');
+        const data = await response.json();
+
+        const sensorValues = {};
+        const timestamps = {};
+        const anomalyFlags = {};
+
+        // Organize data
+        data.forEach(row => {
+            const sensor = row.sensor_type;
+            if (!sensorValues[sensor]) {
+                sensorValues[sensor] = [];
+                timestamps[sensor] = [];
+                anomalyFlags[sensor] = [];
+            }
+            sensorValues[sensor].push(row.value);
+            timestamps[sensor].push(row.timestamp);
+            anomalyFlags[sensor].push(row.anomaly);
+        });
+
+        // Update chart
+        const datasets = Object.keys(sensorValues).map(sensor => {
+            return {
+                label: sensor,
+                data: sensorValues[sensor].map((value, i) => ({
+                    x: timestamps[sensor][i],
+                    y: value,
+                    anomaly: anomalyFlags[sensor][i]
+                })),
+                borderColor: getColor(sensor),
+                borderWidth: 2,
+                fill: false,
+                pointRadius: sensorValues[sensor].map((v, i) => anomalyFlags[sensor][i] ? 6 : 3),
+                pointBackgroundColor: sensorValues[sensor].map((v, i) =>
+                    anomalyFlags[sensor][i] ? 'red' : getColor(sensor)
+                )
+            };
+        });
+
+        if (window.myChart) {
+            window.myChart.data.datasets = datasets;
+            window.myChart.update();
+        } else {
+            const ctx = document.getElementById('sensorChart').getContext('2d');
+            window.myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                parser: 'YYYY-MM-DDTHH:mm:ss',
+                                tooltipFormat: 'll HH:mm',
+                                unit: 'minute',
+                                displayFormats: {
+                                    minute: 'HH:mm'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Timestamp'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Sensor Value'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Handle anomaly alert
+        const latest = data[data.length - 1];
+        document.getElementById('anomaly-alert').style.display = latest.anomaly === 1 ? 'block' : 'none';
+
+        // Update anomaly table
+        const tbody = document.getElementById('anomalyTable').querySelector('tbody');
+        tbody.innerHTML = '';
+        const anomalies = data.filter(d => d.anomaly === 1).slice(-5).reverse();
+        anomalies.forEach(a => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${a.timestamp}</td><td>${a.sensor_type}</td><td>${a.value}</td>`;
+            tbody.appendChild(row);
+        });
+    }
+
+    function getColor(sensor) {
+        const colors = ['blue', 'green', 'orange', 'purple', 'brown', 'cyan'];
+        const index = Object.keys(window.myChart?.data?.datasets || {}).indexOf(sensor);
+        return colors[index % colors.length] || 'gray';
+    }
+
+    setInterval(fetchData, 10000); // Auto-refresh every 10 seconds
+    window.onload = fetchData;
+</script>
+
+</body>
+</html>
