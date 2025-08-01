@@ -9,49 +9,64 @@ import pandas as pd  # MISSING IMPORT FIXED
 model = joblib.load("model/isolation_forest_model.pkl")
 scaler = joblib.load("model/scaler.pkl")
 app = Flask(__name__)
+FEATURES = ['mq5_01']  # Replace with actual sensor types you used during training
 
 CSV_FILE = 'sensor_data.csv'
 
-# POST route to receive sensor data
+# POST route to receive sensor data and run model prediction
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    sensor_type = data.get('sensor_type')
+    value = data.get('value')
 
-    # Add timestamp if not provided
-    if 'timestamp' not in data:
-        data['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Save to sensor_data.csv
+    df = pd.DataFrame([{
+        'timestamp': timestamp,
+        'sensor_type': sensor_type,
+        'value': value
+    }])
+    df.to_csv('sensor_data.csv', mode='a', header=not os.path.exists('sensor_data.csv'), index=False)
 
-    sensor_id = data.get('sensor_id', 'default_sensor')
-    sensor_type = data.get('sensor_type', 'default_type')
-    value = data.get('value', None)
-
-    # Validate value
+    # === Load model & scaler ===
     try:
-        sensor_value = float(value)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Invalid value for sensor'}), 400
+        model = joblib.load('model/isolation_forest_model.pkl')
+        scaler = joblib.load('model/scaler.pkl')
+    except Exception as e:
+        return jsonify({'error': f'Failed to load model/scaler: {str(e)}'})
 
-    # Append to CSV (ensure consistent column order)
-    file_exists = os.path.exists(CSV_FILE)
-    with open(CSV_FILE, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        if not file_exists:
-            writer.writerow(['sensor_id', 'sensor_type', 'value', 'timestamp'])  # header
-        writer.writerow([sensor_id, sensor_type, sensor_value, data['timestamp']])
+    # === Prepare input in pivoted format ===
+    try:
+        pivot_data = pd.read_csv('sensor_data.csv')
+        pivot_data = pivot_data[pd.to_numeric(pivot_data['value'], errors='coerce').notnull()]
+        pivot_data['value'] = pivot_data['value'].astype(float)
+        pivot_df = pivot_data.pivot_table(index='timestamp', columns='sensor_type', values='value', aggfunc='mean').fillna(0)
+    except Exception as e:
+        return jsonify({'error': f'Failed to prepare data for prediction: {str(e)}'})
 
-    # Prepare data for anomaly detection
-    # Create a one-row DataFrame with all expected features (model.feature_names_in_)
-    sample_dict = {ft: 0 for ft in model.feature_names_in_}
-    if sensor_type in sample_dict:
-        sample_dict[sensor_type] = sensor_value
-    sample_full = pd.DataFrame([sample_dict])
+    # Predict only latest row
+    try:
+        latest_data = pivot_df.iloc[[-1]]
+        latest_scaled = scaler.transform(latest_data)
+        prediction = model.predict(latest_scaled)[0]  # -1 = anomaly, 1 = normal
+    except Exception as e:
+        return jsonify({'error': f'Prediction failed: {str(e)}'})
 
-    # Scale and predict
-    X_test = scaler.transform(sample_full)
-    prediction = model.predict(X_test)  # -1 = anomaly, 1 = normal
-    is_anomaly = int(prediction[0] == -1)
+    # === If anomaly, log to anomalies.csv ===
+    if prediction == -1:
+        anomaly_record = {
+            'timestamp': timestamp,
+            'sensor_type': sensor_type,
+            'value': value
+        }
+        pd.DataFrame([anomaly_record]).to_csv('anomalies.csv', mode='a', header=not os.path.exists('anomalies.csv'), index=False)
 
-    return jsonify({'message': 'Data received and saved', 'is_anomaly': is_anomaly}), 200
+    return jsonify({
+        'anomaly': int(prediction == -1),
+        'message': 'Data received and prediction made.'
+    })
 
 # GET route to return data as JSON
 @app.route('/data', methods=['GET'])
@@ -70,23 +85,23 @@ def serve_data():
     return jsonify(result)
 
 # Route to render dashboard HTML
-@app.route('/dashboard')
-def dashboard():
-    timestamps = []
-    values = []
-    try:
-        with open(CSV_FILE, 'r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                timestamps.append(row.get('timestamp', ''))
-                try:
-                    values.append(float(row.get('value', 0.0)))
-                except ValueError:
-                    values.append(0.0)
-    except FileNotFoundError:
-        timestamps, values = [], []
+@app.route('/dashboard-data')
+def dashboard_data():
+    data = []
+    with open('sensor_data.csv', mode='r') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            if len(row) < 4:  # skip rows without prediction
+                continue
+            timestamp, sensor_type, value, prediction = row
+            data.append({
+                'timestamp': timestamp,
+                'sensor_type': sensor_type,
+                'value': float(value),
+                'anomaly': int(prediction)
+            })
+    return jsonify(data)
 
-    return render_template('dashboard.html', timestamps=timestamps, values=values)
 
 # Route to download the CSV file
 @app.route('/download')
