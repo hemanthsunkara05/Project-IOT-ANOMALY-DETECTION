@@ -10,16 +10,23 @@
     <div class="container">
         <h1>📊 Live Sensor Dashboard</h1>
 
+        <!-- Anomaly Alert Box -->
+        <div id="anomaly-alert" style="display: none; color: red; font-weight: bold;">
+            🚨 Anomaly Detected in Sensor Data!
+        </div>
+        <!-- Optional sound -->
+        <audio id="anomaly-sound" src="/static/anomaly.mp3" preload="auto"></audio>
+
         <div class="center">
             <a class="download-btn" href="/download">⬇️ Download CSV</a>
         </div>
 
         <label for="sensorFilter">Select Sensor Type:</label>
         <select id="sensorFilter">
-            <option value="all">MQ-5</option>
-            <option value="all">1</option>
-            <option value="all">2</option>
-            <option value="all">3</option>
+            <option value="all">All</option>
+            <option value="MQ-5">MQ-5</option>
+            <option value="Temperature">Temperature</option>
+            <option value="Humidity">Humidity</option>
         </select>
 
         <canvas id="sensorChart" width="800" height="400"></canvas>
@@ -39,108 +46,111 @@
     </div>
 
     <script>
-    async function fetchData() {
-        const response = await fetch('/data');
-        const data = await response.json();
+let myChart;
 
-        const sensorValues = {};
-        const timestamps = {};
-        const anomalyFlags = {};
+// Helper: assign color to sensor
+function getColor(sensor) {
+    const colors = {
+        'MQ-5': 'red',
+        'Temperature': 'blue',
+        'Humidity': 'green'
+    };
+    return colors[sensor] || 'gray';
+}
 
-        // Organize data
-        data.forEach(row => {
-            const sensor = row.sensor_type;
-            if (!sensorValues[sensor]) {
-                sensorValues[sensor] = [];
-                timestamps[sensor] = [];
-                anomalyFlags[sensor] = [];
-            }
-            sensorValues[sensor].push(row.value);
-            timestamps[sensor].push(row.timestamp);
-            anomalyFlags[sensor].push(row.anomaly);
-        });
+async function fetchData() {
+    const response = await fetch('/dashboard-data');
+    const data = await response.json();
+    console.log("Data from backend:", data);
 
-        // Update chart
-        const datasets = Object.keys(sensorValues).map(sensor => {
-            return {
-                label: sensor,
-                data: sensorValues[sensor].map((value, i) => ({
-                    x: timestamps[sensor][i],
-                    y: value,
-                    anomaly: anomalyFlags[sensor][i]
-                })),
-                borderColor: getColor(sensor),
-                borderWidth: 2,
-                fill: false,
-                pointRadius: sensorValues[sensor].map((v, i) => anomalyFlags[sensor][i] ? 6 : 3),
-                pointBackgroundColor: sensorValues[sensor].map((v, i) =>
-                    anomalyFlags[sensor][i] ? 'red' : getColor(sensor)
-                )
+    // Apply sensor filter
+    const selectedSensor = document.getElementById('sensorFilter').value;
+    const filtered = selectedSensor === 'all'
+        ? data
+        : data.filter(d => d.sensor_type === selectedSensor);
+
+    // Group by sensor type
+    const sensorGroups = {};
+    filtered.forEach(d => {
+        if (!sensorGroups[d.sensor_type]) {
+            sensorGroups[d.sensor_type] = {
+                timestamps: [],
+                values: [],
+                anomalies: []
             };
-        });
+        }
+        sensorGroups[d.sensor_type].timestamps.push(d.timestamp);
+        sensorGroups[d.sensor_type].values.push(d.value);
+        sensorGroups[d.sensor_type].anomalies.push(d.anomaly);
+    });
 
-        if (window.myChart) {
-            window.myChart.data.datasets = datasets;
-            window.myChart.update();
-        } else {
-            const ctx = document.getElementById('sensorChart').getContext('2d');
-            window.myChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                parser: 'YYYY-MM-DDTHH:mm:ss',
-                                tooltipFormat: 'll HH:mm',
-                                unit: 'minute',
-                                displayFormats: {
-                                    minute: 'HH:mm'
-                                }
-                            },
-                            title: {
-                                display: true,
-                                text: 'Timestamp'
+    const datasets = Object.keys(sensorGroups).map(sensor => {
+        const group = sensorGroups[sensor];
+        return {
+            label: sensor,
+            data: group.timestamps.map((t, i) => ({ x: t, y: group.values[i] })),
+            borderColor: getColor(sensor),
+            borderWidth: 2,
+            fill: false,
+            pointRadius: group.anomalies.map(a => a === 1 ? 6 : 3),
+            pointBackgroundColor: group.anomalies.map(a => a === 1 ? 'red' : getColor(sensor))
+        };
+    });
+
+    if (myChart) {
+        myChart.data.datasets = datasets;
+        myChart.update();
+    } else {
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                parsing: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            tooltipFormat: 'MMM D, h:mm:ss a',
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'h:mm a'
                             }
                         },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Sensor Value'
-                            }
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Value'
                         }
                     }
                 }
-            });
-        }
-
-        // Handle anomaly alert
-        const latest = data[data.length - 1];
-        document.getElementById('anomaly-alert').style.display = latest.anomaly === 1 ? 'block' : 'none';
-
-        // Update anomaly table
-        const tbody = document.getElementById('anomalyTable').querySelector('tbody');
-        tbody.innerHTML = '';
-        const anomalies = data.filter(d => d.anomaly === 1).slice(-5).reverse();
-        anomalies.forEach(a => {
-            const row = document.createElement('tr');
-            row.innerHTML = `<td>${a.timestamp}</td><td>${a.sensor_type}</td><td>${a.value}</td>`;
-            tbody.appendChild(row);
+            }
         });
     }
 
-    function getColor(sensor) {
-        const colors = ['blue', 'green', 'orange', 'purple', 'brown', 'cyan'];
-        const index = Object.keys(window.myChart?.data?.datasets || {}).indexOf(sensor);
-        return colors[index % colors.length] || 'gray';
+    // Anomaly Alert
+    const anyAnomaly = filtered.some(row => row.anomaly === 1);
+    document.getElementById("anomaly-alert").style.display = anyAnomaly ? "block" : "none";
+    if (anyAnomaly) {
+        document.getElementById("anomaly-sound").play();
     }
+}
 
-    setInterval(fetchData, 10000); // Auto-refresh every 10 seconds
-    window.onload = fetchData;
+    setInterval(fetchData, 10000); // every 10 seconds
+// Sensor type filter
+document.getElementById('sensorFilter').addEventListener('change', fetchData);
+
+// Auto refresh
+setInterval(fetchData, 10000);
+fetchData(); // Load on page load
 </script>
 
 </body>

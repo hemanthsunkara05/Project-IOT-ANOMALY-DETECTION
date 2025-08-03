@@ -7,3 +7,37 @@ timestamp,sensor_type,value
 2025-08-01T02:50:00,mq5_01,330
 2025-08-01T02:50:00,mq5_01,340
 2025-08-01 22:48:02,Temperature,-100
+2025-08-03 21:15:23,Temperature,100
+2025-08-03 21:32:20,Temperature,100
+2025-08-03 21:32:53,Temperature,100
+2025-08-03 21:35:30,Temperature,100
+2025-08-03 21:35:32,Temperature,100
+2025-08-03 21:37:46,Temperature,100
+2025-08-03 21:37:48,Temperature,100
+2025-08-03 21:55:57,Temperature,100
+2025-08-03 21:56:05,Temperature,300
+2025-08-03 21:56:11,Temperature,-100
+2025-08-03 21:56:27,Temperature,0
+2025-08-03 21:56:32,Temperature,-1
+2025-08-03 21:56:37,Temperature,-100
+2025-08-03 21:56:43,Temperature,-10
+2025-08-03 21:56:49,Temperature,-99
+2025-08-03 21:56:56,Temperature,-50
+2025-08-03 21:57:02,Temperature,-80
+2025-08-03 21:57:07,Temperature,-60
+2025-08-03 21:57:16,Temperature,-70
+2025-08-03 21:57:21,Temperature,-75
+2025-08-03 21:57:26,Temperature,-76
+2025-08-03 21:57:31,Temperature,-78
+2025-08-03 21:57:37,Temperature,-79
+2025-08-03 21:57:44,Temperature,-80
+2025-08-03 22:04:40,Temperature,-80
+2025-08-03 22:04:53,Temperature,-1000
+2025-08-03 22:04:57,Temperature,-100
+2025-08-03 22:06:07,Temperature,-100
+2025-08-03 22:06:15,Temperature,300
+2025-08-03 23:21:42,Temperature,300
+2025-08-03 23:21:49,Temperature,320
+2025-08-03 23:21:54,Temperature,330
+2025-08-03 23:21:58,Temperature,320
+2025-08-04 01:13:52,Temperature,320

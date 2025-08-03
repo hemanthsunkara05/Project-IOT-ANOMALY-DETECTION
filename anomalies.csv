@@ -1,0 +1,10 @@
+timestamp,sensor_type,value
+2025-08-03 21:56:11,Temperature,-100
+2025-08-03 21:56:37,Temperature,-100
+2025-08-03 21:56:49,Temperature,-99
+2025-08-03 21:57:02,Temperature,-80
+2025-08-03 21:57:44,Temperature,-80
+2025-08-03 22:04:40,Temperature,-80
+2025-08-03 22:04:53,Temperature,-1000
+2025-08-03 22:04:57,Temperature,-100
+2025-08-03 22:06:07,Temperature,-100

@@ -3,7 +3,8 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 import joblib
 
-CSV_PATH = '../sensor_data.csv'  # Update if running from inside modelss folder
+# Path to the CSV file (same folder)
+CSV_PATH = 'sensor_data.csv'
 
 # Load data
 df = pd.read_csv(CSV_PATH)
@@ -17,7 +18,7 @@ if not required_columns.issubset(df.columns):
 df = df[pd.to_numeric(df['value'], errors='coerce').notnull()]
 df['value'] = df['value'].astype(float)
 
-# Pivot data: create one column per sensor type
+# Pivot data: one column per sensor type
 pivot_df = df.pivot_table(index='timestamp', columns='sensor_type', values='value', aggfunc='mean')
 pivot_df = pivot_df.fillna(0)
 
@@ -33,8 +34,8 @@ X_scaled = scaler.fit_transform(pivot_df)
 model = IsolationForest(contamination=0.05, random_state=42)
 model.fit(X_scaled)
 
-# Save model and scaler
-joblib.dump(model, 'isolation_forest_model.pkl')
-joblib.dump(scaler, 'scaler.pkl')
+# Save model and scaler to 'models/' folder
+joblib.dump(model, 'model/isolation_forest_model.pkl')
+joblib.dump(scaler, 'model/scaler.pkl')
 
-print("✅ Model and scaler saved!")
+print("✅ Model and scaler saved to 'models/'!")
