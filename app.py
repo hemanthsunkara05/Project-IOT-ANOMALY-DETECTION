@@ -1,217 +1,198 @@
-from flask import Flask, request, jsonify, render_template, send_file
-import csv
+from flask import Flask, redirect, request, jsonify, render_template, send_file, Response, abort
 import os
-from datetime import datetime
+import pandas as pd
 import joblib
-import numpy as np
-import pandas as pd  # MISSING IMPORT FIXED
-import csv
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
+from datetime import datetime
 import pickle
 
-
-model = joblib.load("model/isolation_forest_model.pkl")
-scaler = joblib.load("model/scaler.pkl")
 app = Flask(__name__)
-FEATURES = ['mq5_01']  # Replace with actual sensor types you used during training
+
+FEATURE_MAP = {
+    "MQ-5": "mq5_01"
+}
 
 CSV_FILE = 'sensor_data.csv'
+MODEL_DIR = 'model/'
+
+# Load model and scaler once on startup
+try:
+    model = joblib.load(MODEL_DIR + "isolation_forest_model.pkl")
+    scaler = joblib.load(MODEL_DIR + "scaler.pkl")
+except Exception:
+    model = None
+    scaler = None
+
 @app.route('/')
 def home():
-    return redirect("/dashboard")  # optional redirect to dashboard
+    return redirect("/dashboard")
 
 @app.route('/dashboard')
 def dashboard():
     return render_template("dashboard.html")
-# POST route to receive sensor data and run model prediction
 
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    sensor_type = data.get('sensor_type')
+    raw_sensor_type = data.get('sensor_type')
+    sensor_type = FEATURE_MAP.get(raw_sensor_type)
+    if sensor_type is None:
+        return jsonify({'error': f'Unsupported sensor_type: {raw_sensor_type}'}), 400
+
     value = data.get('value')
+    sensor_id = data.get('sensor_id', 'unknown')
 
-    # Save to sensor_data.csv
-    df = pd.DataFrame([{
+    if value is None:
+        return jsonify({'error': "Missing 'value'"}), 400
+
+    global model, scaler
+    if model is None or scaler is None:
+        try:
+            model = joblib.load(MODEL_DIR + 'isolation_forest_model.pkl')
+            scaler = joblib.load(MODEL_DIR + 'scaler.pkl')
+        except Exception as e:
+            return jsonify({'error': f'Failed to load model/scaler: {str(e)}'}), 500
+
+    if os.path.exists(CSV_FILE):
+        all_data = pd.read_csv(CSV_FILE)
+    else:
+        columns = ['timestamp', 'sensor_id', 'sensor_type', 'value', 'anomaly']
+        all_data = pd.DataFrame(columns=columns)
+
+    new_row = {
         'timestamp': timestamp,
+        'sensor_id': sensor_id,
         'sensor_type': sensor_type,
-        'value': value
-    }])
-    df.to_csv('sensor_data.csv', mode='a', header=not os.path.exists('sensor_data.csv'), index=False)
+        'value': float(value),
+        'anomaly': 0
+    }
+    all_data = pd.concat([all_data, pd.DataFrame([new_row])], ignore_index=True)
 
-    # === Load model & scaler ===
     try:
-        model = joblib.load('model/isolation_forest_model.pkl')
-        scaler = joblib.load('model/scaler.pkl')
-    except Exception as e:
-        return jsonify({'error': f'Failed to load model/scaler: {str(e)}'})
-
-    # === Prepare input in pivoted format ===
-    try:
-        pivot_data = pd.read_csv('sensor_data.csv')
-        pivot_data = pivot_data[pd.to_numeric(pivot_data['value'], errors='coerce').notnull()]
-        pivot_data['value'] = pivot_data['value'].astype(float)
-        pivot_df = pivot_data.pivot_table(index='timestamp', columns='sensor_type', values='value', aggfunc='mean').fillna(0)
-    except Exception as e:
-        return jsonify({'error': f'Failed to prepare data for prediction: {str(e)}'})
-
-    # Predict only latest row
-    try:
+        pivot_df = all_data.pivot_table(index='timestamp', columns='sensor_type', values='value', aggfunc='mean').fillna(0)
         latest_data = pivot_df.iloc[[-1]]
         latest_scaled = scaler.transform(latest_data)
-        prediction = model.predict(latest_scaled)[0]  # -1 = anomaly, 1 = normal
+        prediction = int(model.predict(latest_scaled)[0] == -1)
     except Exception as e:
-        return jsonify({'error': f'Prediction failed: {str(e)}'})
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
-    # === If anomaly, log to anomalies.csv ===
-    if prediction == -1:
-        anomaly_record = {
-            'timestamp': timestamp,
-            'sensor_type': sensor_type,
-            'value': value
-        }
-        pd.DataFrame([anomaly_record]).to_csv('anomalies.csv', mode='a', header=not os.path.exists('anomalies.csv'), index=False)
+    all_data.at[all_data.index[-1], 'anomaly'] = prediction
+    all_data.to_csv(CSV_FILE, index=False)
 
     return jsonify({
-        'anomaly': int(prediction == -1),
+        'anomaly': prediction,
         'message': 'Data received and prediction made.'
     })
-
 
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # Load model and scaler
-        with open("model/scaler.pkl", "rb") as s:
+        with open(MODEL_DIR + "scaler.pkl", "rb") as s:
             scaler = pickle.load(s)
-        with open("model/isolation_forest_model.pkl", "rb") as f:
+        with open(MODEL_DIR + "isolation_forest_model.pkl", "rb") as f:
             model = pickle.load(f)
 
-        # Get JSON input
         data = request.get_json()
         sensor_type = data.get("sensor_type")
         value = data.get("value")
+        sensor_id = data.get("sensor_id", "unknown")
 
-        if value is None or sensor_type is None:
+        if sensor_type is None or value is None:
             return jsonify({"error": "Missing 'sensor_type' or 'value' in input JSON"}), 400
 
-        # Build full feature vector
-        features = ['mq5_01']  # 👈 Make sure this matches training
+        features = ['mq5_01']
         feature_vector = {ft: 0.0 for ft in features}
-        if sensor_type in features:
-            feature_vector[sensor_type] = float(value)
+        # Map input sensor_type to feature name
+        feature_name = FEATURE_MAP.get(sensor_type, sensor_type)
+        if feature_name in features:
+            feature_vector[feature_name] = float(value)
 
-        # Convert to DataFrame
         df = pd.DataFrame([feature_vector])
-
-        # Scale and predict
         X_scaled = scaler.transform(df)
         prediction = model.predict(X_scaled)[0]
-        status = "Anomaly" if prediction == -1 else "Normal"
+        anomaly_flag = int(prediction == -1)
+        status = "Anomaly" if anomaly_flag else "Normal"
 
-        # ✅ Log this prediction to CSV
-        df['anomaly'] = prediction
-        df['sensor_id'] = data.get("sensor_id", "unknown")
-        df['sensor_type'] = sensor_type
-        df['value'] = value
-        df['timestamp'] = datetime.now().isoformat()
+        record = {
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'sensor_type': feature_name,
+            'sensor_id': sensor_id,
+            'value': float(value),
+            'anomaly': anomaly_flag
+        }
 
-        df.to_csv("sensor_data.csv", mode='a', index=False, header=not os.path.exists("sensor_data.csv"))
+        pd.DataFrame([record]).to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE))
 
         return jsonify({
-            "sensor_id": df['sensor_id'].values[0],
-            "sensor_type": sensor_type,
+            "sensor_id": sensor_id,
+            "sensor_type": feature_name,
             "value": value,
             "prediction": status
         })
 
     except Exception as e:
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-    
-@app.route('/predictions')
-def get_predictions():
-    try:
-        df = pd.read_csv("predictions.csv")
-        return df.to_json(orient='records')
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-
-# GET route to return data as JSON
-@app.route('/data', methods=['GET'])
-def serve_data():
-    result = []
-    if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, mode='r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                result.append({
-                    'sensor_id': row.get('sensor_id', ''),
-                    'sensor_type': row.get('sensor_type', ''),
-                    'value': row.get('value', ''),
-                    'timestamp': row.get('timestamp', '')
-                })
-    return jsonify(result)
-
-# Route to render dashboard HTML
 @app.route('/dashboard-data')
 def dashboard_data():
     try:
-        df = pd.read_csv('sensor_data.csv')
-
-        if 'timestamp' not in df.columns:
+        if not os.path.exists(CSV_FILE):
             return jsonify([])
+        df = pd.read_csv(CSV_FILE)
+        if 'anomaly' not in df.columns:
+            df['anomaly'] = 0
 
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df = df.sort_values('timestamp', ascending=True)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        df = df.sort_values('timestamp', ascending=True).tail(100)
 
-        print("Dashboard Data Preview:\n", df.tail(5))  # ✅ Debug
-
-        # Build response
         result = []
         for _, row in df.iterrows():
             result.append({
-                'sensor_type': row['sensor_type'],
-                'value': row['value'],
-                'timestamp': row['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
-                'anomaly': row['anomaly']
+                'sensor_id': row.get('sensor_id', ''),
+                'sensor_type': row.get('sensor_type', ''),
+                'value': float(row.get('value', 0)),
+                'timestamp': row['timestamp'].strftime("%Y-%m-%dT%H:%M:%S") if not pd.isnull(row['timestamp']) else '',
+                'anomaly': int(row.get('anomaly', 0))
             })
-
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-
-# Route to download the CSV file
 @app.route('/download')
 def download_file():
     if not os.path.exists(CSV_FILE):
         return "No data file found", 404
     return send_file(CSV_FILE, as_attachment=True)
 
-# Route to return data grouped by sensor_type as JSON
-@app.route('/data_json')
-def data_json():
-    if not os.path.exists(CSV_FILE):
-        return jsonify({})
-    df = pd.read_csv(CSV_FILE)
-    data = {}
-    if 'sensor_type' in df.columns:
-        for sensor_type in df['sensor_type'].unique():
-            sensor_df = df[df['sensor_type'] == sensor_type]
-            data[sensor_type] = {
-                "timestamps": sensor_df['timestamp'].tolist(),
-                "values": sensor_df['value'].tolist()
-            }
-    return jsonify(data)
-
-from flask import Flask, render_template
-
-
+@app.route('/static/anomaly.mp3')
+def anomaly_mp3():
+    path = os.path.join('static', 'anomaly.mp3')
+    range_header = request.headers.get('Range', None)
+    if not os.path.exists(path):
+        abort(404)
+    if not range_header:
+        return send_file(path)
+    size = os.path.getsize(path)
+    byte1, byte2 = 0, None
+    m = None
+    import re
+    m = re.search(r'bytes=(\d+)-(\d*)', range_header)
+    if m:
+        g = m.groups()
+        byte1 = int(g[0])
+        if g[1]:
+            byte2 = int(g[1])
+    length = size - byte1
+    if byte2 is not None:
+        length = byte2 - byte1 + 1
+    with open(path, 'rb') as f:
+        f.seek(byte1)
+        data = f.read(length)
+    rv = Response(data, 206, mimetype='audio/mpeg', direct_passthrough=True)
+    rv.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{size}')
+    rv.headers.add('Accept-Ranges', 'bytes')
+    rv.headers.add('Content-Length', str(length))
+    return rv
 
 if __name__ == "__main__":
     app.run(debug=True)

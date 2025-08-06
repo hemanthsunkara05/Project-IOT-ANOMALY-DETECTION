@@ -1,32 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Live Sensor Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8" />
+    <title>Live Sensor Dashboard - MQ-5 Only</title>
+    <link rel="stylesheet" href="/static/style.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
 </head>
 <body>
     <div class="container">
-        <h1>📊 Live Sensor Dashboard</h1>
+        <h1>📊 Live Sensor Dashboard (MQ-5 Gas Sensor Only)</h1>
 
-        <!-- Anomaly Alert Box -->
-        <div id="anomaly-alert" style="display: none; color: red; font-weight: bold;">
-            🚨 Anomaly Detected in Sensor Data!
-        </div>
-        <!-- Optional sound -->
-        <audio id="anomaly-sound" src="/static/anomaly.mp3" preload="auto"></audio>
+        <!-- Remove the Start Monitoring button and anomaly-sound audio element -->
 
         <div class="center">
-            <a class="download-btn" href="/download">⬇️ Download CSV</a>
+            <a class="download-button" href="/download">⬇️ Download CSV</a>
         </div>
 
         <label for="sensorFilter">Select Sensor Type:</label>
-        <select id="sensorFilter">
-            <option value="all">All</option>
-            <option value="MQ-5">MQ-5</option>
-            <option value="Temperature">Temperature</option>
-            <option value="Humidity">Humidity</option>
+        <select id="sensorFilter" disabled>
+            <option value="mq5_01">MQ-5 Gas Sensor</option>
         </select>
 
         <canvas id="sensorChart" width="800" height="400"></canvas>
@@ -45,31 +39,23 @@
         </table>
     </div>
 
-    <script>
+<script>
 let myChart;
 
-// Helper: assign color to sensor
 function getColor(sensor) {
-    const colors = {
-        'MQ-5': 'red',
-        'Temperature': 'blue',
-        'Humidity': 'green'
-    };
-    return colors[sensor] || 'gray';
+    return 'red';  // Only MQ-5, so fixed color
 }
 
 async function fetchData() {
     const response = await fetch('/dashboard-data');
     const data = await response.json();
-    console.log("Data from backend:", data);
 
-    // Apply sensor filter
-    const selectedSensor = document.getElementById('sensorFilter').value;
-    const filtered = selectedSensor === 'all'
-        ? data
-        : data.filter(d => d.sensor_type === selectedSensor);
+    console.log("Fetched data:", data);
+    console.log("Timestamps:", data.map(d => d.timestamp));
 
-    // Group by sensor type
+    const filtered = data;  // Only one sensor, no filtering needed
+
+    // Group data by sensor type (still generic for future-proofing)
     const sensorGroups = {};
     filtered.forEach(d => {
         if (!sensorGroups[d.sensor_type]) {
@@ -87,70 +73,84 @@ async function fetchData() {
     const datasets = Object.keys(sensorGroups).map(sensor => {
         const group = sensorGroups[sensor];
         return {
-            label: sensor,
+            label: "MQ-5 Gas Sensor",
             data: group.timestamps.map((t, i) => ({ x: t, y: group.values[i] })),
-            borderColor: getColor(sensor),
-            borderWidth: 2,
+            borderColor: 'red', // force visible color
+            backgroundColor: 'red',
+            borderWidth: 3,
             fill: false,
-            pointRadius: group.anomalies.map(a => a === 1 ? 6 : 3),
-            pointBackgroundColor: group.anomalies.map(a => a === 1 ? 'red' : getColor(sensor))
+            showLine: true,
+            pointRadius: 8,
+            pointBackgroundColor: 'red', // single color for all points
+            spanGaps: true // force line connection even if gaps
         };
     });
 
+    console.log("Datasets for Chart.js:", datasets);
+    console.log("Final dataset for Chart.js:", datasets);
+    // Always destroy the old chart before creating a new one
+    const ctx = document.getElementById('sensorChart').getContext('2d');
     if (myChart) {
-        myChart.data.datasets = datasets;
-        myChart.update();
-    } else {
-        const ctx = document.getElementById('sensorChart').getContext('2d');
-        myChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                datasets: datasets
+        myChart.destroy();
+    }
+    myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            showLine: true,
+            elements: {
+                point: {
+                    radius: 8,
+                    borderWidth: 2
+                },
+                line: {
+                    borderWidth: 3
+                }
             },
-            options: {
-                responsive: true,
-                parsing: false,
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            tooltipFormat: 'MMM D, h:mm:ss a',
-                            unit: 'minute',
-                            displayFormats: {
-                                minute: 'h:mm a'
-                            }
-                        },
-                        title: {
-                            display: true,
-                            text: 'Time'
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'MMM d, h:mm:ss a',
+                        unit: 'minute',
+                        displayFormats: {
+                            minute: 'h:mm a'
                         }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Value'
-                        }
-                    }
+                    title: { display: true, text: 'Time' }
+                },
+                y: {
+                    title: { display: true, text: 'Sensor Value' }
                 }
             }
-        });
-    }
+        }
+    });
 
-    // Anomaly Alert
-    const anyAnomaly = filtered.some(row => row.anomaly === 1);
-    document.getElementById("anomaly-alert").style.display = anyAnomaly ? "block" : "none";
-    if (anyAnomaly) {
-        document.getElementById("anomaly-sound").play();
-    }
+    // Populate table with latest data (max 10 rows)
+    const tbody = document.getElementById("data-table").querySelector("tbody");
+    tbody.innerHTML = "";
+    filtered.slice(-10).reverse().forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${row.sensor_id}</td>
+            <td>${row.value}</td>
+            <td>${row.timestamp}</td>
+        `;
+        if (row.anomaly === 1) {
+            tr.style.backgroundColor = '#ffcccc'; // light red for anomaly
+            tr.style.color = 'red';
+            tr.style.fontWeight = 'bold';
+        }
+        tbody.appendChild(tr);
+    });
 }
 
-    setInterval(fetchData, 10000); // every 10 seconds
-// Sensor type filter
-document.getElementById('sensorFilter').addEventListener('change', fetchData);
-
-// Auto refresh
+// Initial load and set refresh interval
+fetchData();
 setInterval(fetchData, 10000);
-fetchData(); // Load on page load
 </script>
 
 </body>
