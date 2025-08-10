@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Sensor Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+        #root {
+            width: 100%;
+            height: 100vh;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="loading">
+            Loading Real-Time Sensor Dashboard...
+        </div>
+    </div>
+    
+    <!-- Load React and ReactDOM from CDN for development -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Load the React app -->
+    <script type="module">
+        // Import the React app from the frontend directory
+        import('/frontend/src/main.tsx').catch(err => {
+            console.error('Failed to load React app:', err);
+            document.getElementById('root').innerHTML = `
+                <div style="padding: 20px; text-align: center;">
+                    <h2>Dashboard Loading Error</h2>
+                    <p>The React frontend couldn't be loaded. Please ensure the frontend is built or use the legacy dashboard.</p>
+                    <a href="/dashboard" style="color: #007bff; text-decoration: none;">Go to Legacy Dashboard</a>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>

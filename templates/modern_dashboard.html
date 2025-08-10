@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Sensor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .sensor-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 20px;
+            color: white;
+            transition: transform 0.2s;
+        }
+        .sensor-card:hover {
+            transform: translateY(-2px);
+        }
+        .anomaly {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-connected { background-color: #10b981; }
+        .status-disconnected { background-color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow-sm border-b">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center py-4">
+                    <div class="flex items-center">
+                        <h1 class="text-2xl font-bold text-gray-900">Real-Time Sensor Dashboard</h1>
+                        <div class="ml-4 flex items-center">
+                            <span class="status-indicator status-connected" id="connectionStatus"></span>
+                            <span class="text-sm text-gray-600" id="connectionText">Connected</span>
+                        </div>
+                    </div>
+                                         <div class="text-sm text-gray-500">
+                         Last updated: <span id="lastUpdated">-</span>
+                         <div class="mt-1 text-xs text-gray-400">
+                             Enhanced Detection: Absolute + Statistical + Trend + Velocity
+                         </div>
+                     </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Sensor Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" id="sensorGrid">
+                <!-- Sensor cards will be populated here -->
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4">Gas Sensor Trends (Last 20 Readings)</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4">Anomaly Detection Distribution</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas id="anomalyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Data Table -->
+            <div class="mt-8 bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-semibold">Recent Sensor Data</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sensor</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="dataTable">
+                            <!-- Data rows will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Global variables
+        let trendChart, anomalyChart;
+        let lastData = [];
+
+        // Initialize charts
+        function initializeCharts() {
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            const anomalyCtx = document.getElementById('anomalyChart').getContext('2d');
+
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Sensor Values',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                maxTicksLimit: 8
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Gas Concentration (ppm)',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            },
+                            ticks: {
+                                maxTicksLimit: 10
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time',
+                                font: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                color: '#374151'
+                            }
+                        }
+                    },
+                    elements: {
+                        point: {
+                            borderWidth: 2
+                        }
+                    }
+                }
+            });
+
+            anomalyChart = new Chart(anomalyCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Normal Readings', 'Anomaly Detected'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#10b981', '#ef4444'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Create sensor card
+        function createSensorCard(sensor) {
+            const cardClass = (sensor.isAnomaly || sensor.anomaly) ? 'sensor-card anomaly' : 'sensor-card';
+            return `
+                <div class="${cardClass}">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-2xl">${sensor.icon}</div>
+                        <div class="text-right">
+                            <div class="text-sm opacity-75">${sensor.type}</div>
+                            <div class="text-2xl font-bold">${sensor.value.toFixed(1)}</div>
+                            <div class="text-sm opacity-75">${sensor.unit}</div>
+                        </div>
+                    </div>
+                                         <div class="flex items-center justify-between">
+                         <div class="text-sm opacity-75">
+                             ${(sensor.isAnomaly || sensor.anomaly) ? '🚨 Anomaly Detected' : '✅ Normal'}
+                         </div>
+                        <div class="text-xs opacity-75">
+                            ${new Date(sensor.timestamp).toLocaleTimeString()}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Update sensor grid
+        function updateSensorGrid(sensors) {
+            const grid = document.getElementById('sensorGrid');
+            grid.innerHTML = sensors.map(createSensorCard).join('');
+        }
+
+        // Update data table
+        function updateDataTable(data) {
+            const tbody = document.getElementById('dataTable');
+            tbody.innerHTML = data.map(row => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <span class="text-lg mr-2">${row.icon}</span>
+                            <div>
+                                <div class="text-sm font-medium text-gray-900">${row.type}</div>
+                                <div class="text-sm text-gray-500">${row.sensor_id}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-900">${row.value.toFixed(2)} ${row.unit}</div>
+                    </td>
+                                         <td class="px-6 py-4 whitespace-nowrap">
+                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                             (row.isAnomaly || row.anomaly) ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                         }">
+                             ${(row.isAnomaly || row.anomaly) ? 'Anomaly' : 'Normal'}
+                         </span>
+                     </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${new Date(row.timestamp).toLocaleString()}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Update charts
+        function updateCharts(data) {
+            if (data.length === 0) return;
+            
+            // Update trend chart - limit to last 20 data points for better visualization
+            const recentData = data.slice(-20);
+            const timestamps = recentData.map(d => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const values = recentData.map(d => d.value);
+
+            trendChart.data.labels = timestamps;
+            trendChart.data.datasets[0].data = values;
+            
+            // Set better y-axis scaling
+            const minValue = Math.min(...values);
+            const maxValue = Math.max(...values);
+            const range = maxValue - minValue;
+            
+            trendChart.options.scales.y.min = Math.max(0, minValue - range * 0.1);
+            trendChart.options.scales.y.max = maxValue + range * 0.1;
+            
+            trendChart.update();
+
+            // Update anomaly chart
+            const normalCount = data.filter(d => !(d.isAnomaly || d.anomaly)).length;
+            const anomalyCount = data.filter(d => (d.isAnomaly || d.anomaly)).length;
+
+            anomalyChart.data.datasets[0].data = [normalCount, anomalyCount];
+            anomalyChart.update();
+        }
+
+        // Fetch and update data
+        async function fetchAndUpdateData() {
+            try {
+                const response = await fetch('/dashboard-data');
+                const data = await response.json();
+
+                if (data.length > 0) {
+                    // Process data for display
+                    const processedData = data.map(row => ({
+                        ...row,
+                        isAnomaly: Boolean(row.anomaly), // Convert to boolean
+                        icon: getIconForSensor(row.sensor_type),
+                        unit: getUnitForSensor(row.sensor_type),
+                        type: getDisplayName(row.sensor_type)
+                    }));
+
+                    // Group by sensor type for cards
+                    const sensorGroups = {};
+                    processedData.forEach(item => {
+                        if (!sensorGroups[item.sensor_type]) {
+                            sensorGroups[item.sensor_type] = [];
+                        }
+                        sensorGroups[item.sensor_type].push(item);
+                    });
+
+                    const sensorCards = Object.values(sensorGroups).map(group => group[group.length - 1]);
+
+                    updateSensorGrid(sensorCards);
+                    updateDataTable(processedData.slice(-10)); // Last 10 readings
+                    updateCharts(processedData);
+
+                    lastData = processedData;
+                }
+
+                // Update connection status
+                document.getElementById('connectionStatus').className = 'status-indicator status-connected';
+                document.getElementById('connectionText').textContent = 'Connected';
+                document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                document.getElementById('connectionStatus').className = 'status-indicator status-disconnected';
+                document.getElementById('connectionText').textContent = 'Disconnected';
+            }
+        }
+
+        // Helper functions
+        function getIconForSensor(sensorType) {
+            const icons = {
+                'mq5_01': '🌬️',
+                'temp_01': '🌡️',
+                'humidity_01': '💧',
+                'pressure_01': '📊',
+                'light_01': '💡',
+                'motion_01': '🏃'
+            };
+            return icons[sensorType] || '📡';
+        }
+
+        function getUnitForSensor(sensorType) {
+            const units = {
+                'mq5_01': 'ppm',
+                'temp_01': '°C',
+                'humidity_01': '%',
+                'pressure_01': 'kPa',
+                'light_01': 'lux',
+                'motion_01': 'events/min'
+            };
+            return units[sensorType] || '';
+        }
+
+        function getDisplayName(sensorType) {
+            const names = {
+                'mq5_01': 'Gas Sensor',
+                'temp_01': 'Temperature',
+                'humidity_01': 'Humidity',
+                'pressure_01': 'Pressure',
+                'light_01': 'Light',
+                'motion_01': 'Motion'
+            };
+            return names[sensorType] || sensorType;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            fetchAndUpdateData();
+            
+            // Update every 10 seconds
+            setInterval(fetchAndUpdateData, 10000);
+        });
+    </script>
+</body>
+</html>
