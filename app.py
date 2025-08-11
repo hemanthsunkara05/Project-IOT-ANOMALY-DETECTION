@@ -5,6 +5,7 @@ import joblib
 from datetime import datetime
 import pickle
 from enhanced_anomaly_detector import EnhancedAnomalyDetector
+from outdoor_gas_monitor import OutdoorGasMonitor
 
 app = Flask(__name__)
 
@@ -36,6 +37,14 @@ try:
 except Exception as e:
     print(f"⚠️ Warning: Could not initialize enhanced detector: {e}")
     enhanced_detector = None
+
+# Initialize outdoor gas monitor
+try:
+    outdoor_monitor = OutdoorGasMonitor()
+    print("✅ Outdoor gas monitor initialized")
+except Exception as e:
+    print(f"⚠️ Warning: Could not initialize outdoor monitor: {e}")
+    outdoor_monitor = None
 
 @app.route('/')
 def home():
@@ -207,6 +216,11 @@ def receive_data():
                 'details': result['details'],
                 'message': f'Enhanced detection: {result["anomaly_type"]} (confidence: {result["confidence"]:.1%})'
             }
+            
+            # Add home safety alert message if available
+            if 'alert_message' in result:
+                response_data['alert_message'] = result['alert_message']
+                response_data['home_safety_alert'] = True
         except Exception as e:
             print(f"Enhanced detection failed: {e}")
             # Fallback to original method
@@ -406,6 +420,110 @@ def add_trend_test_data():
         'message': f'Added {len(trend_data)} trend test data points (gradual increase from {base_value} to {base_value + 360} ppm)',
         'data_points': trend_data
     })
+
+@app.route('/outdoor-gas-data', methods=['POST'])
+def outdoor_gas_data():
+    """Process outdoor gas monitoring data with advanced signal processing"""
+    if outdoor_monitor is None:
+        return jsonify({'error': 'Outdoor gas monitor not available'}), 500
+    
+    try:
+        data = request.get_json()
+        ppm_value = data.get('value')
+        gas_type = data.get('gas_type', 'methane')  # Default to methane
+        sensor_id = data.get('sensor_id', 'outdoor_mq5')
+        
+        if ppm_value is None:
+            return jsonify({'error': 'Missing ppm value'}), 400
+        
+        # Set gas type if specified
+        if gas_type != outdoor_monitor.gas_type:
+            outdoor_monitor.set_gas_type(gas_type)
+        
+        # Process the reading
+        result = outdoor_monitor.add_reading(ppm_value)
+        
+        # Prepare response
+        response_data = {
+            'sensor_id': sensor_id,
+            'gas_type': result['gas_type'],
+            'raw_value': result['raw_value'],
+            'moving_average': result.get('moving_average', 0),
+            'rolling_median': result.get('rolling_median', 0),
+            'rate_of_rise': result.get('rate_of_rise', 0),
+            'state': result['state'],
+            'alert_triggered': result['alert_triggered'],
+            'thresholds': result['thresholds'],
+            'timestamp': result['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+            'indicators': result.get('indicators', {}),
+            'voting_decision': result.get('voting_decision', 'NORMAL')
+        }
+        
+        # Add alert message if triggered
+        if result['alert_triggered']:
+            if result['state'] == 'EARLY_WARNING':
+                response_data['alert_message'] = f"Early Warning: {result['gas_type']} levels elevated - {result.get('moving_average', 0):.1f} ppm"
+            elif result['state'] == 'DANGER':
+                response_data['alert_message'] = f"DANGER: {result['gas_type']} levels critical - {result.get('moving_average', 0):.1f} ppm - EVACUATE IMMEDIATELY!"
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        return jsonify({'error': f'Processing failed: {str(e)}'}), 500
+
+@app.route('/outdoor-gas-status')
+def outdoor_gas_status():
+    """Get current status of outdoor gas monitoring system"""
+    if outdoor_monitor is None:
+        return jsonify({'error': 'Outdoor gas monitor not available'}), 500
+    
+    try:
+        status = outdoor_monitor.get_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': f'Status retrieval failed: {str(e)}'}), 500
+
+@app.route('/outdoor-gas-config', methods=['GET', 'POST'])
+def outdoor_gas_config():
+    """Get or update outdoor gas monitoring configuration"""
+    if outdoor_monitor is None:
+        return jsonify({'error': 'Outdoor gas monitor not available'}), 500
+    
+    try:
+        if request.method == 'POST':
+            # Update configuration
+            new_config = request.get_json()
+            if new_config and 'gas_type' in new_config:
+                success = outdoor_monitor.set_gas_type(new_config['gas_type'])
+                if success:
+                    return jsonify({'message': f'Switched to {new_config["gas_type"]} monitoring'})
+                else:
+                    return jsonify({'error': 'Invalid gas type'}), 400
+            else:
+                return jsonify({'error': 'Invalid configuration data'}), 400
+        else:
+            # Return current configuration
+            return jsonify({
+                'current_gas_type': outdoor_monitor.gas_type,
+                'available_gas_types': list(outdoor_monitor.config['gas_types'].keys()),
+                'thresholds': outdoor_monitor.thresholds,
+                'config': outdoor_monitor.config
+            })
+    except Exception as e:
+        return jsonify({'error': f'Configuration operation failed: {str(e)}'}), 500
+
+@app.route('/test-outdoor-monitor')
+def test_outdoor_monitor():
+    """Test the outdoor gas monitoring system"""
+    if outdoor_monitor is None:
+        return jsonify({'error': 'Outdoor gas monitor not available'}), 500
+    
+    try:
+        # Run the test
+        outdoor_monitor.test_system()
+        return jsonify({'message': 'Outdoor gas monitor test completed successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Test failed: {str(e)}'}), 500
 
 @app.route('/static/anomaly.mp3')
 def anomaly_mp3():

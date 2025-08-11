@@ -20,7 +20,11 @@ class EnhancedAnomalyDetector:
             'absolute_extreme': 1000,   # ppm - Extreme level
             'trend_window': 5,          # Number of readings to check for trend
             'trend_threshold': 0.1,     # 10% increase threshold
-            'consecutive_increases': 3   # Number of consecutive increases to trigger
+            'consecutive_increases': 3,  # Number of consecutive increases to trigger
+            
+            # Home Safety Thresholds for MQ-5 sensor
+            'home_safety_low': 2000,    # ppm - Early warning for LPG/methane/natural gas leak
+            'home_safety_high': 4000    # ppm - Danger level - evacuate immediately
         }
     
     def load_models(self):
@@ -65,6 +69,17 @@ class EnhancedAnomalyDetector:
             return True, 'WARNING'
         else:
             return False, 'NORMAL'
+    
+    def detect_home_safety_anomaly(self, value):
+        """Detect home safety anomalies based on MQ-5 sensor thresholds"""
+        value = float(value)
+        
+        if value >= self.thresholds['home_safety_high']:
+            return True, 'DANGER_EVACUATE', f'Danger level reached: {value} ppm - EVACUATE IMMEDIATELY!'
+        elif value >= self.thresholds['home_safety_low']:
+            return True, 'EARLY_WARNING', f'Early warning: {value} ppm - Potential gas leak detected'
+        else:
+            return False, 'SAFE', f'Safe level: {value} ppm'
     
     def detect_trend_anomaly(self, sensor_type='mq5_01', window=None):
         """Detect anomalies based on increasing trends"""
@@ -174,19 +189,36 @@ class EnhancedAnomalyDetector:
             'type': velocity_type
         }
         
+        # Method 5: Home Safety Detection (for MQ-5 sensors)
+        home_safety_anomaly, home_safety_type, home_safety_message = self.detect_home_safety_anomaly(value)
+        results['details']['home_safety'] = {
+            'detected': home_safety_anomaly,
+            'type': home_safety_type,
+            'message': home_safety_message
+        }
+        
         # Determine overall anomaly status
         anomaly_count = sum([
             absolute_anomaly,
             bool(statistical_anomaly),
             trend_anomaly,
-            velocity_anomaly
+            velocity_anomaly,
+            home_safety_anomaly
         ])
         
         # Calculate confidence based on number of methods that detected anomalies
-        results['confidence'] = anomaly_count / 4.0
+        results['confidence'] = anomaly_count / 5.0
         
-        # Determine anomaly type based on priority
-        if absolute_anomaly and 'EXTREME' in absolute_type:
+        # Determine anomaly type based on priority (Home Safety has highest priority)
+        if home_safety_anomaly and 'DANGER_EVACUATE' in home_safety_type:
+            results['anomaly_type'] = 'DANGER_EVACUATE'
+            results['anomaly_detected'] = True
+            results['alert_message'] = home_safety_message
+        elif home_safety_anomaly and 'EARLY_WARNING' in home_safety_type:
+            results['anomaly_type'] = 'EARLY_WARNING'
+            results['anomaly_detected'] = True
+            results['alert_message'] = home_safety_message
+        elif absolute_anomaly and 'EXTREME' in absolute_type:
             results['anomaly_type'] = 'EXTREME'
             results['anomaly_detected'] = True
         elif absolute_anomaly and 'CRITICAL' in absolute_type:
@@ -221,7 +253,11 @@ class EnhancedAnomalyDetector:
             (300, "Warning threshold"),
             (500, "Critical threshold"),
             (1000, "Extreme threshold"),
-            (1500, "Very high value")
+            (1500, "Very high value"),
+            (2000, "Home safety low threshold (Early Warning)"),
+            (3000, "Between home safety thresholds"),
+            (4000, "Home safety high threshold (Danger - Evacuate)"),
+            (5000, "Above home safety high threshold")
         ]
         
         for value, description in test_cases:
@@ -237,7 +273,14 @@ class EnhancedAnomalyDetector:
                 print("   Details:")
                 for method, details in result['details'].items():
                     if details['detected']:
-                        print(f"     - {method.upper()}: {details['type']}")
+                        if method == 'home_safety' and 'message' in details:
+                            print(f"     - {method.upper()}: {details['type']} - {details['message']}")
+                        else:
+                            print(f"     - {method.upper()}: {details['type']}")
+                
+                # Show alert message if available
+                if 'alert_message' in result:
+                    print(f"   🚨 ALERT: {result['alert_message']}")
 
 if __name__ == "__main__":
     detector = EnhancedAnomalyDetector()

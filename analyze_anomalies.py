@@ -44,7 +44,7 @@ print(f"Mean: {anomaly_values.mean():.2f}")
 # Test different values to see what triggers anomalies
 print(f"\n🧪 Testing Different Values:")
 
-test_values = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 1000, 5000, 10000, 50000, 100000]
+test_values = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 1000, 5000, 10000]
 
 for value in test_values:
     # Create test data

@@ -1,0 +1,42 @@
+{
+  "gas_types": {
+    "lpg": {
+      "name": "LPG",
+      "low_threshold": 1000,
+      "high_threshold": 3000,
+      "description": "Liquefied Petroleum Gas"
+    },
+    "methane": {
+      "name": "Methane",
+      "low_threshold": 2500,
+      "high_threshold": 7500,
+      "description": "Natural Gas / Methane"
+    }
+  },
+  "default_gas_type": "methane",
+  "signal_processing": {
+    "moving_average_window": 10,
+    "rolling_median_window": 300,
+    "rate_of_rise_threshold": 500,
+    "rate_of_rise_window": 10
+  },
+  "hysteresis": {
+    "clear_threshold_percentage": 10,
+    "consecutive_samples_required": 3
+  },
+  "voting": {
+    "min_indicators_required": 2,
+    "sustained_high_samples": 3
+  },
+  "alerts": {
+    "early_warning_message": "Early Warning: {gas_type} levels elevated - {value} ppm",
+    "danger_message": "DANGER: {gas_type} levels critical - {value} ppm - EVACUATE IMMEDIATELY!",
+    "rate_of_rise_message": "Rapid {gas_type} increase detected - {value} ppm (+{increase} ppm in {time}s)"
+  },
+  "logging": {
+    "log_raw_values": true,
+    "log_processed_values": true,
+    "log_alerts": true,
+    "csv_filename": "outdoor_gas_monitor.csv"
+  }
+}
